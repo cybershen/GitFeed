@@ -11,7 +11,7 @@ import RxCocoa
 import Kingfisher
 
 class ActivityController: UITableViewController {
-    private let repo = "ReactiveX/RxSwift"
+    private let repo = "cybershen/CloudMusic"
     
     private let events = BehaviorRelay<[Event]>(value: [])
     private let bag = DisposeBag()
@@ -39,11 +39,45 @@ class ActivityController: UITableViewController {
     }
     
     func fetchEvents(repo: String) {
+        let response = Observable.from([repo])
+            .map { urlString -> URL in
+                return URL(
+                    string: "https://api.github.com/repos/\(urlString)/events")!
+            }
+            .map { url -> URLRequest in
+                return URLRequest(url: url)
+            }
+            .flatMap { request -> Observable<(response: HTTPURLResponse, data: Data)> in
+                return URLSession.shared.rx.response(request: request)
+            }
+            .share(replay: 1)
+            
+            response
+            .filter { response, _ in
+                return 200..<300 ~= response.statusCode
+            }
         
+            .compactMap { _, data -> [Event]? in
+                return try? JSONDecoder().decode([Event].self, from: data)
+            }
+        
+            .subscribe(onNext: { [weak self] newEvents in
+                self?.processEvents(newEvents)
+            })
+        
+            .disposed(by: bag)
     }
     
     func processEvents(_ newEvents: [Event]) {
+        var updatedEvents = newEvents + events.value
+        if updatedEvents.count > 50 {
+            updatedEvents = [Event](updatedEvents.prefix(upTo: 50))
+        }
         
+        events.accept(updatedEvents)
+        DispatchQueue.main.async {
+          self.tableView.reloadData()
+        }
     }
     
     // MARK: - Table Data Source
